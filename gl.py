@@ -1,87 +1,55 @@
-#Maria Jose Castro Lemus 
-#181202
-#Graficas por Computadora - 10
-#RT2: Teddys
-#snowman
-
-import struct 
-from materials import coal, snow, ivory, carrot,white,red, green, yellow, glass, rubber, mirror
+from mathfunc import writebmp, color, norm, V3, sub, dot, reflect, length, mul, sum, refract
 from sphere import Sphere
-from mathfunc import norm, V3, color, char,dword, word, sub, length, dot, mul, reflect, sum, refract
-from collections import namedtuple
+from math import pi, tan
+from cube import Cube
+from envmap import Envmap
+from pyramid import Pyramid
+from plane import Plane
+from materials import coal, yellow, silver, mirror, green, darkbrown, darkbrown, red
 import random
-from numpy import matrix, cos, sin, tan, pi
-import math
-from light import Light
+from light import *
+
 
 BLACK = color(0, 0, 0)
 WHITE = color(255, 255, 255)
+
+BACKGROUND = color(0, 0, 0)
+
 MAX_RECURSION_DEPTH = 3
 
-class Render(object):
+
+class Raytracer(object):
     def __init__(self, width, height):
         self.width = width
         self.height = height
         self.scene = []
         self.activeTexture = WHITE
+        self.envMap = None
         self.clear()
 
     def clear(self):
-        self.framebuffer= [
-        [self.activeTexture for x in range(self.width)]
-        for y in range(self.height)
+        self.framebuffer = [
+            [self.activeTexture for x in range(self.width)]
+            for y in range(self.height)
         ]
+
+    def write(self, filename='out.bmp'):
+        writebmp(filename, self.width, self.height, self.framebuffer)
 
     def point(self, x, y, selectColor=None):
         try:
-            self.framebuffer[y][x] = self.activeTexture
+            self.framebuffer[y][x] = selectColor or self.activeTexture
         except:
             pass
-        
-    def glCreateWindow(self, width, height):
-        self.width = width
-        self.height = height
-        #r = Render(width,height)
 
-    def write(self, filename):
-        f = open(filename, 'bw')
-        f.write(char('B'))
-        f.write(char('M'))
-        f.write(dword(14 + 40 + self.width * self.height * 3))
-        f.write(dword(0))
-        f.write(dword(14 + 40))
-
-        #image header 
-        f.write(dword(40))
-        f.write(dword(self.width))
-        f.write(dword(self.height))
-        f.write(word(1))
-        f.write(word(24))
-        f.write(dword(0))
-        f.write(dword(self.width * self.height * 3))
-        f.write(dword(0))
-        f.write(dword(0))
-        f.write(dword(0))
-        f.write(dword(0))
-
-        #pixel data
-        for x in range(self.width):
-            for y in range(self.height):
-                f.write(self.framebuffer[y][x].toBytes())
-        f.close()
-
-        #Referencia del repositorio ejemplo de dennis
-    def glFinish(self, filename='proyecto.bmp'):
-        self.write(filename)
-
-    def scene_intersect(self, orig, direction):
+    def sceneIntersect(self, origin, direction):
         zbuffer = float('inf')
         
         material = None
         intersect = None
         
         for obj in self.scene:
-            hit = obj.ray_intersect(orig, direction)
+            hit = obj.rayIntersect(origin, direction)
             if hit is not None:
                 if hit.distance < zbuffer:
                     zbuffer = hit.distance
@@ -89,81 +57,162 @@ class Render(object):
                     intersect = hit
         return material, intersect
 
-        '''for obj in self.scene:
-            if obj.ray_intersect(orig, direction):
-                return obj.material
-        return None'''
-
-    def cast_ray(self, orig, direction, recursion = 0):
-        material, intersect = self.scene_intersect(orig, direction)
-
+    def castRay(self, origin, direction, recursion = 0):
+        material, intersect = self.sceneIntersect(origin, direction)
+        
         if material is None or recursion >= MAX_RECURSION_DEPTH:
+            if self.envMap:
+                return self.envMap.getColor(direction)
             return self.activeTexture
+        
+        lightDir = norm(sub(self.light.position, intersect.point))
+        lightDistance = length(sub(self.light.position, intersect.point))
+        
+        offsetNormal = mul(intersect.normal, 1.1)
+        shadowOrigin = sub(intersect.point, offsetNormal) if dot(lightDir, intersect.normal) < 0 else sum(intersect.point, offsetNormal)
+        shadowMaterial, shadowIntersect = self.sceneIntersect(shadowOrigin, lightDir)
+        shadowIntensity = 0
 
-        offset_normal = mul(intersect.normal, 1.1)
-        if material.albedo[2] > 0:
-            reverse_direction = mul(direction, -1)
-            reflect_dir = reflect(reverse_direction, intersect.normal)
-            reflect_orig = sub(intersect.point, offset_normal) if dot(reflect_dir, intersect.normal) < 0 else sum(intersect.point, offset_normal)
-            reflect_color = self.cast_ray(reflect_orig, reflect_dir, recursion + 1)
-        else:
-            reflect_color = color(0, 0, 0)
-        #print(material)
-        #print(material.albedo)
-        if material.albedo[3] > 0:
-            refract_dir = refract(direction, intersect.normal, material.refractive_index)
-            refract_orig = sub(intersect.point, offset_normal) if dot(refract_dir, intersect.normal) < 0 else sum(intersect.point, offset_normal)
-            refract_color = self.cast_ray(refract_orig, refract_dir, recursion + 1)
-        else:
-            refract_color = color(0, 0, 0)
-            
-        light_dir = norm(sub(self.light.position, intersect.point))
-        light_distance = length(sub(self.light.position, intersect.point))
+        if shadowMaterial and length(sub(shadowIntersect.point, shadowOrigin)) < lightDistance:
+            shadowIntensity = 0.9
 
-        #offset_normal = mul(intersect.normal, 1.1)  # avoids intercept with itself
-        shadow_orig = sub(intersect.point, offset_normal) if dot(light_dir, intersect.normal) < 0 else sum(intersect.point, offset_normal)
-        shadow_material, shadow_intersect = self.scene_intersect(shadow_orig, light_dir)
-        shadow_intensity = 0
+        intensity = self.light.intensity * max(0, dot(lightDir, intersect.normal)) * (1 - shadowIntensity)
 
-        if shadow_material and length(sub(shadow_intersect.point, shadow_orig)) < light_distance:
-            shadow_intensity = 0.9
-
-        intensity = self.light.intensity * max(0, dot(light_dir, intersect.normal)) * (1 - shadow_intensity)
-
-        reflection = reflect(light_dir, intersect.normal)
-        specular_intensity = self.light.intensity * (
-        max(0, -dot(reflection, direction))**material.spec
+        reflection = reflect(lightDir, intersect.normal)
+        specularIntensity = self.light.intensity * (
+            max(0, -dot(reflection, direction)) ** material.spec
         )
 
+        if material.albedo[2] > 0:
+            reflectDir = reflect(direction, intersect.normal)
+            reflectOrigin = sub(intersect.point, offsetNormal) if dot(reflectDir, intersect.normal) < 0 else sum(intersect.point, offsetNormal)
+            reflectedColor = self.castRay(reflectOrigin, reflectDir, recursion + 1)
+        else:
+            reflectedColor = self.activeTexture
+
+        if material.albedo[3] > 0:
+            refractDir = refract(direction, intersect.normal, material.refractionIndex)
+            refractOrigin = sub(intersect.point, offsetNormal) if dot(refractDir, intersect.normal) < 0 else sum(intersect.point, offsetNormal)
+            refractedColor = self.castRay(refractOrigin, refractDir, recursion + 1)
+        else:
+            refractedColor = self.activeTexture
+
         diffuse = material.diffuse * intensity * material.albedo[0]
-        specular = color(255, 255, 255) * specular_intensity * material.albedo[1]
-        reflection = reflect_color * material.albedo[2]
-        refraction = refract_color * material.albedo[3]
-        return diffuse + specular + reflection + refraction
-  
+        specular = color(255, 255, 255) * specularIntensity * material.albedo[1]
+        reflected = reflectedColor * material.albedo[2]
+        refracted = refractedColor * material.albedo[3]
+        
+        return diffuse + specular + reflected + refracted
+
 
     def render(self):
-        fov = int(pi/2)
+        fov = int(pi / 2) # field of view
         for y in range(self.height):
             for x in range(self.width):
-                i =  (2*(x + 0.5)/self.width - 1) * tan(fov/2) * self.width/self.height
-                j =  (2*(y + 0.5)/self.height - 1) * tan(fov/2)
+                #if random.randint(0,1) !=0:
+                #    continue
+                i = (2 * (x + 0.5) / self.width - 1) * self.width / self.height * tan(fov / 2)
+                j = (2 * (y + 0.5) / self.height - 1) * tan(fov / 2)
                 direction = norm(V3(i, j, -1))
-                self.framebuffer[y][x] = self.cast_ray(V3(0,0,0), direction)
+                self.framebuffer[y][x] = self.castRay(V3(0, 0, 0), direction)
+
+    def gradientBackground(self):
+        for x in range(self.width):
+            for y in range(self.height):
+                r = int((x / self.width) * 255) if x / self.width < 1 else 1
+                g = int((y / self.height) * 255) if y / self.height < 1 else 1
+                b = 0
+                self.framebuffer[y][x] = color(r, g, b)
+    
 
 
-r = Render(1000, 1000)
+r = Raytracer(800, 500)
+r.envMap = Envmap('temple4.bmp')
 r.light = Light(
     position = V3(0, 0, 20),
     intensity = 1.5
 )
 r.scene = [
-    #balls
-    Sphere(V3(0, -1.5, -10), 1.5, ivory),
-    Sphere(V3(0, 0, -5), 0.5, glass),
-    Sphere(V3(1, 1, -8), 1.7, rubber),
-    Sphere(V3(-3, 3, -10), 2, mirror)
+    #reflejo
+    Cube(V3(0, -3.5, -2), 5, mirror),
+    #Sol
+    Sphere(V3(7.5, 4, -12), 2, yellow),
 
+    #arbol
+    Pyramid([V3(-5, 0, -10), V3(-6.5, 5, -10), V3(-8, 0, -10), V3(-5, 0, -10)], green),
+    Cube(V3(-8, -0.2, -12), 0.8, darkbrown),
+    Cube(V3(-8, -1, -12), 0.8, darkbrown),
+
+    
+    #inicio de piramide 
+    Cube(V3(0, -2.5, -12), 1.5, darkbrown),
+    Cube(V3(1.5, -2, -12), 1.5, darkbrown),
+    Cube(V3(3, -1.5, -12), 1.5, darkbrown),
+    Cube(V3(-1.5, -2, -12), 1.5, darkbrown),
+    Cube(V3(-3, -1.5, -12), 1.5, darkbrown),
+
+    #Segundo nivel 
+    Cube(V3(0, -1, -12), 1.25, darkbrown),
+    Cube(V3(1.3, -0.75, -12), 1.25, darkbrown),
+    Cube(V3(2.5, -0.50, -12), 1.25, darkbrown),
+    Cube(V3(-1.3, -0.75, -12), 1.25, darkbrown),
+    Cube(V3(-2.5, -0.50, -12), 1.25, darkbrown),
+
+    #tercer nivel
+    Cube(V3(0, 0, -12), 1.25, darkbrown),
+    Cube(V3(1.3, 0.25, -12), 1.25, darkbrown),
+    Cube(V3(2.5, 0.50, -12), 1.25, darkbrown),
+    Cube(V3(-1.3, 0.25, -12), 1.25, darkbrown),
+    Cube(V3(-2.5, 0.50, -12), 1.25, darkbrown),
+
+    #piramides 
+    Pyramid([V3(0.3, 0.6, -10), V3(0, 3.6, -10), V3(-0.6, 0.6, -10), V3(0.6, 0.6, -10)], darkbrown),
+    Pyramid([V3(-0.6, 0.8, -10), V3(-1.1, 4, -10), V3(-1.6, 0.8, -10), V3(-0.3, 0.8, -10)], darkbrown),
+    Pyramid([V3(0.6, 0.8, -10), V3(1.1, 4, -10), V3(1.6, 0.8, -10), V3(0.3, 0.8, -10)], darkbrown),
+    Pyramid([V3(2.6, 0.8, -10), V3(2.2, 4, -10), V3(1.3, 0.8, -10), V3(2.6, 0.8, -10)], darkbrown),
+    Pyramid([V3(-2.6, 0.8, -10), V3(-2.2, 4, -10), V3(-1.3, 0.8, -10), V3(-2.6, 0.8, -10)], darkbrown),
+
+    
 ]
 r.render()
-r.glFinish()
+
+r.write()
+
+'''
+#Sol
+    Sphere(V3(7.5, 4, -12), 2, red),
+
+    #arbol
+    Pyramid([V3(-5, 0, -10), V3(-6.5, 5, -10), V3(-8, 0, -10), V3(-5, 0, -10)], green),
+    Cube(V3(-8, -0.2, -12), 0.8, darkdarkbrown),
+    Cube(V3(-8, -1, -12), 0.8, darkdarkbrown),
+
+    
+    #inicio de piramide 
+    Cube(V3(0, -2.5, -12), 1.5, darkbrown),
+    Cube(V3(1.5, -2, -12), 1.5, darkbrown),
+    Cube(V3(3, -1.5, -12), 1.5, darkbrown),
+    Cube(V3(-1.5, -2, -12), 1.5, darkbrown),
+    Cube(V3(-3, -1.5, -12), 1.5, darkbrown),
+
+    #Segundo nivel 
+    Cube(V3(0, -1, -12), 1.25, darkbrown),
+    Cube(V3(1.3, -0.75, -12), 1.25, darkbrown),
+    Cube(V3(2.5, -0.50, -12), 1.25, darkbrown),
+    Cube(V3(-1.3, -0.75, -12), 1.25, darkbrown),
+    Cube(V3(-2.5, -0.50, -12), 1.25, darkbrown),
+
+    #tercer nivel
+    Cube(V3(0, 0, -12), 1.25, darkbrown),
+    Cube(V3(1.3, 0.25, -12), 1.25, darkbrown),
+    Cube(V3(2.5, 0.50, -12), 1.25, darkbrown),
+    Cube(V3(-1.3, 0.25, -12), 1.25, darkbrown),
+    Cube(V3(-2.5, 0.50, -12), 1.25, darkbrown),
+
+    #piramides 
+    Pyramid([V3(0.3, 0.6, -10), V3(0, 3.6, -10), V3(-0.6, 0.6, -10), V3(0.6, 0.6, -10)], darkbrown),
+    Pyramid([V3(-0.6, 0.8, -10), V3(-1.1, 4, -10), V3(-1.6, 0.8, -10), V3(-0.3, 0.8, -10)], darkbrown),
+    Pyramid([V3(0.6, 0.8, -10), V3(1.1, 4, -10), V3(1.6, 0.8, -10), V3(0.3, 0.8, -10)], darkbrown),
+    Pyramid([V3(2.6, 0.8, -10), V3(2.2, 4, -10), V3(1.3, 0.8, -10), V3(2.6, 0.8, -10)], darkbrown),
+    Pyramid([V3(-2.6, 0.8, -10), V3(-2.2, 4, -10), V3(-1.3, 0.8, -10), V3(-2.6, 0.8, -10)], darkbrown),
+'''
