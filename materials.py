@@ -21,7 +21,6 @@ snow = Material(diffuse = color(209, 232, 237),albedo = (0.6, 0.3, 0.1, 0), spec
 coal = Material(diffuse = color(0,0,0),albedo = (0.6, 0.3, 0.1, 0), spec = 5)
 carrot = Material(diffuse = color(227, 110, 14), albedo=(0.9, 0.1, 0, 0, 0), spec=10)
 white = Material(diffuse = color(255, 255, 255),albedo = (0.6, 0.3, 0.1, 0), spec = 5)
-
+silver = Material(diffuse = color(145, 145, 145),albedo = (0.6, 0.3, 0.1,0), spec = 5)
 red = Material(diffuse=color(80, 0, 0), albedo=(0.9, 0.1, 0, 0, 0), spec=10)
-
-yellow = Material(diffuse = color(100, 100, 80), albedo=(0.6, 0.3, 0.1, 0), spec=50)
+yellow = Material(diffuse = color(100, 100, 80), albedo=(0.6, 0.3, 0.1, 0), spec=5)

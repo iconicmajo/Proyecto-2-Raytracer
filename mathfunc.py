@@ -4,29 +4,12 @@
 #RT1: Esferas
 #snowman
 
-
-import struct 
 from collections import namedtuple
+import struct
 
-class V3(object):
-  def __init__(self, x, y, z):
-    self.x = x
-    self.y = y
-    self.z = z
+V2 = namedtuple('Vertex2', ['x', 'y'])
+V3 = namedtuple('Vertex3', ['x', 'y', 'z'])
 
-  def __repr__(self):
-    return "V3(%s, %s, %s)" % (self.x, self.y, self.z)
-
-class V2(object):
-  def __init__(self, x, y):
-    self.x = x
-    self.y = y
-
-  def __repr__(self):
-    return "V2(%s, %s)" % (self.x, self.y)
-
-#V2 = namedtuple('Vertex2', ['x', 'y'])
-#V3 = namedtuple('Vertex3', ['x', 'y', 'z'])
 
 class color(object):
     def __init__(self, r,g,b):
@@ -60,17 +43,19 @@ class color(object):
     
     __rmul__ = __mul__
 
-def MM(a,b):
+
+def MM(a, b):
     c = []
-    for i in range(0,len(a)):
-        temp=[]
-        for j in range(0,len(b[0])):
+    for i in range(0, len(a)):
+        temp = []
+        for j in range(0, len(b[0])):
             s = 0
-            for k in range(0,len(a[0])):
+            for k in range(0, len(a[0])):
                 s += a[i][k]*b[k][j]
             temp.append(s)
         c.append(temp)
     return c
+
 
 def char(c):
     return struct.pack('=c', c.encode('ascii'))
@@ -78,8 +63,9 @@ def word(c):
     return struct.pack('=h', c)
 def dword(c):
     return struct.pack('=l', c)
-#def color(r, g, b):
-#    return bytes([b, g, r])
+    
+
+
 
 def sum(v0, v1):
     """
@@ -169,36 +155,39 @@ def barycentric(A, B, C, P):
     u = cx / cz
     v = cy / cz
     w = 1 - (cx + cy) / cz
-    
-    return  w, v, u
+
+    return w, v, u
 
 
-def writebmp(self, filename, width, height, framebuffer):
-        f = open(filename, 'bw')
-        f.write(char('B'))
-        f.write(char('M'))
-        f.write(dword(14 + 40 + self.width * self.height * 3))
-        f.write(dword(0))
-        f.write(dword(14 + 40))
+def writebmp(filename, width, height, pixels):
+    f = open(filename, 'bw')
 
-        #image header 
-        f.write(dword(40))
-        f.write(dword(self.width))
-        f.write(dword(self.height))
-        f.write(word(1))
-        f.write(word(24))
-        f.write(dword(0))
-        f.write(dword(self.width * self.height * 3))
-        f.write(dword(0))
-        f.write(dword(0))
-        f.write(dword(0))
-        f.write(dword(0))
+    # File header (14 bytes)
+    f.write(char('B'))
+    f.write(char('M'))
+    f.write(dword(14 + 40 + width * height * 3))
+    f.write(dword(0))
+    f.write(dword(14 + 40))
 
-        #pixel data
-        for x in range(self.width):
-            for y in range(self.height):
-                f.write(self.framebuffer[y][x])
-        f.close()
+    # Image header (40 bytes)
+    f.write(dword(40))
+    f.write(dword(width))
+    f.write(dword(height))
+    f.write(word(1))
+    f.write(word(24))
+    f.write(dword(0))
+    f.write(dword(width * height * 3))
+    f.write(dword(0))
+    f.write(dword(0))
+    f.write(dword(0))
+    f.write(dword(0))
+
+    # Pixel data (width x height x 3 pixels)
+    for x in range(height):
+        for y in range(width):
+            f.write(pixels[x][y].toBytes())
+    f.close()
+
 
 
 def reflect(I, N):
@@ -206,22 +195,29 @@ def reflect(I, N):
     n = mul(N, 2 * dot(Lm, N))
     return norm(sub(Lm, n))
 
-def refract(I, N, refractive_index):  # Implementation of Snell's law
-    cosi = -max(-1, min(1, dot(I, N)))
+def refract(I, N, refractiveIndex):
     etai = 1
-    etat = refractive_index
+    etat = refractiveIndex
 
-    if cosi < 0:  # if the ray is inside the object, swap the indices and invert the normal to get the correct result
-      cosi = -cosi
-      etai, etat = etat, etai
-      N = mul(N, -1)
-
+    cosi = - dot(I, N)
+    if cosi < 0:
+        cosi = -cosi
+        etai, etat = etat, etai
+        N = mul(N, -1)
+    
+    if etat == 0:
+        return V3(1, 0, 0)
+    
     eta = etai/etat
-    k = 1 - eta**2 * (1 - cosi**2)
+
+    k = 1 - eta ** 2 * (1 - cosi ** 2)
+
     if k < 0:
-      return V3(1, 0, 0)
+        return V3(1, 0, 0)
+
+    cost = k ** 0.5
 
     return norm(sum(
-      mul(I, eta),
-      mul(N, (eta * cosi - k**(1/2)))
+        mul(I, eta),
+        mul(N, (eta * cosi - cost))
     ))
